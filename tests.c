@@ -27,21 +27,3 @@ int main() {
     tffn_hello_world();
 
 }
-
-
-/*
-
->>> CREATING NEW REPOS
-
-
-03- BOŞ repo oluştur ve linkini kopyala
-04- git remote add origin <repoLinki>
-05- notice_checker.bat success vermeli
-06- Her dosyayı son bir kez gözden geçir
-07- git add .
-08- git commit -m "initial commit"
-09- git branch -M main
-10- git push -u origin main
-
-
-*/
