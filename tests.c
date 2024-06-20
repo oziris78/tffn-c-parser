@@ -22,8 +22,72 @@
 #include "tffn.h"
 
 
-int main() {
+#define expect_equal(exp, act) expect_equal_inner(exp, act, __FILE__, __LINE__)
 
-    tffn_hello_world();
-
+void expect_equal_inner(const char* exp, const char* act, const char* file, int line) {
+    if(strcmp(exp, act) == 0) return;
+    printf("\n---------------------------\n");
+    printf("TEST FAILS!\nPlace: '%s:%d'\nExpected: '%s'\nReceived: '%s'\n", file, line, exp, act);
+    printf("---------------------------\n");
+    exit(78);
 }
+
+
+// ------------------------------------------------------------ //
+
+void string_builder_tests();
+
+
+int main() {
+    string_builder_tests();
+
+    printf("ALL TESTS PASSES!!!!\n");
+    return 0;
+}
+
+
+// ------------------------------------------------------------ //
+
+
+void string_builder_tests() {
+    for (size_t cap = 1; cap < 2000; cap *= 2) {
+        TFFNStrBuilder* sb = tffn_sb_new(cap);
+        tffn_sb_append(sb, "Hello world!", 12);
+        char* str = tffn_sb_to_str(sb);
+        expect_equal("Hello world!", str);
+        free(str);
+        tffn_sb_free(sb);
+    }
+    
+    for (size_t cap = 1; cap < 2000; cap *= 2) {
+        TFFNStrBuilder* sb = tffn_sb_new(cap);
+        tffn_sb_append(sb, "Hello world!", 12);
+        tffn_sb_append(sb, "Hello world!", 12);
+        tffn_sb_append(sb, "Hello world!", 12);
+        char* str = tffn_sb_to_str(sb);
+        expect_equal("Hello world!Hello world!Hello world!", str);
+        free(str);
+        tffn_sb_free(sb);
+    }
+    
+    for (size_t cap = 1; cap < 2000; cap *= 2) {
+        TFFNStrBuilder* sb = tffn_sb_new(cap);
+        tffn_sb_append(sb, "Hello world!", 12);
+        tffn_sb_clear(sb);
+        tffn_sb_append(sb, "Hello world!", 12);
+        tffn_sb_append(sb, "Hello world!", 12);
+        char* str = tffn_sb_to_str(sb);
+        expect_equal("Hello world!Hello world!", str);
+        free(str);
+        tffn_sb_free(sb);
+    }
+
+    {
+        TFFNStrBuilder sb = *tffn_sb_new_from("Hello", 5);
+        tffn_sb_append(&sb, " world!", 7);
+        char* str = tffn_sb_to_str(&sb);
+        expect_equal("Hello world!", str);
+        free(str);
+    }
+}
+

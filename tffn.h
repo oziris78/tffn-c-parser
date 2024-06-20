@@ -18,9 +18,42 @@
 #ifndef TFFN_H
 #define TFFN_H
 
-#include <stdio.h>
 
-void tffn_hello_world();
+#ifndef TFFN_ASSERT
+    #include <assert.h>
+    #define TFFN_ASSERT assert
+#endif
+
+#ifndef TFFN_MALLOC
+    #include <stdlib.h>
+    #define TFFN_MALLOC malloc
+#endif
+
+#ifndef TFFN_REALLOC
+    #include <stdlib.h>
+    #define TFFN_REALLOC realloc
+#endif
+
+#ifndef TFFN_FREE
+    #include <stdlib.h>
+    #define TFFN_FREE free
+#endif
+
+
+typedef struct _TFFNStrBuilder {
+    char* buffer;     // not NULL terminated
+    size_t count;     // how many letters are there in the buffer?
+    size_t capacity;  // maximum amount of letters that can fit into buffer
+} TFFNStrBuilder;
+
+TFFNStrBuilder* tffn_sb_new(size_t);
+TFFNStrBuilder* tffn_sb_new_from(const char*, size_t);
+void tffn_sb_append(TFFNStrBuilder*, const char*, size_t);
+void tffn_sb_clear(TFFNStrBuilder*);
+void tffn_sb_free(TFFNStrBuilder*);
+char* tffn_sb_to_str(TFFNStrBuilder*);
+
+
 
 #endif // TFFN_H
 
@@ -34,8 +67,66 @@ extern "C" {  // prevents name mangling of functions when used in C++
 #endif
 
 
-void tffn_hello_world() {
-    printf("hello world!");
+TFFNStrBuilder* tffn_sb_new(size_t initial_capacity) {
+    TFFN_ASSERT(initial_capacity > 0);
+    TFFNStrBuilder* sb = (TFFNStrBuilder*) TFFN_MALLOC(sizeof(TFFNStrBuilder));
+    TFFN_ASSERT(sb != NULL && "Couldn't allocate memory");
+
+    sb->count = 0;
+    sb->capacity = initial_capacity;
+    sb->buffer = (char*) TFFN_MALLOC(sb->capacity * sizeof(char));
+    TFFN_ASSERT(sb->buffer != NULL && "Couldn't allocate memory");
+
+    return sb;
+}
+
+
+TFFNStrBuilder* tffn_sb_new_from(const char* buffer, size_t char_count) {
+    TFFN_ASSERT(char_count > 0);
+    TFFNStrBuilder* sb = tffn_sb_new(char_count * 2);
+    tffn_sb_append(sb, buffer, char_count);
+    return sb;
+}
+
+
+
+
+void tffn_sb_append(TFFNStrBuilder* sb, const char* buffer, size_t char_count) {
+    if (buffer == NULL || char_count <= 0) return; // nothing to append
+
+    // The given string doesnt fit into the current buffer, so increase the buffer capacity
+    while(sb->count + char_count > sb->capacity) {
+        sb->capacity *= 2;
+        sb->buffer = TFFN_REALLOC(sb->buffer, sb->capacity * sizeof(char));
+        TFFN_ASSERT(sb->buffer != NULL && "Couldn't allocate memory");
+    }
+
+    for (size_t i = 0; i < char_count; i++) {
+        sb->buffer[sb->count] = buffer[i];
+        sb->count++;
+    }
+}
+
+
+void tffn_sb_clear(TFFNStrBuilder* sb) {
+    sb->count = 0;
+}
+
+
+void tffn_sb_free(TFFNStrBuilder* sb) {
+    sb->buffer[sb->count-1] = '\0';
+    TFFN_FREE(sb->buffer);
+    TFFN_FREE(sb);
+}
+
+
+char* tffn_sb_to_str(TFFNStrBuilder* sb) {
+    char* res = (char*) TFFN_MALLOC((sb->count+1) * sizeof(char));
+    for (size_t i = 0; i < sb->count; i++) {
+        res[i] = sb->buffer[i];
+    }
+    res[sb->count] = '\0';
+    return res;
 }
 
 

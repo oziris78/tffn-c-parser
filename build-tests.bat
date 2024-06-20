@@ -2,12 +2,13 @@
 :: This file cleans up generated .exe files, compiles the tests, and also runs them
 :: This file is also licensed under the terms of the Apache-2.0 license.
 
+
 @echo off
-IF EXIST tffn-test.exe (
+IF EXIST tests.exe (
     DEL /F tffn-test.exe
 )
 
-gcc -o tffn-test tffn-test.c -I.
+gcc -o tests tests.c -I.
 
 IF %ERRORLEVEL% NEQ 0 (
     echo Compilation failed.
@@ -15,9 +16,10 @@ IF %ERRORLEVEL% NEQ 0 (
 )
 
 @echo on
-tffn-test.exe
+tests.exe
 
 @echo off
-IF EXIST tffn-test.exe (
-    DEL /F tffn-test.exe
+IF EXIST tests.exe (
+    DEL /F tests.exe
 )
+
