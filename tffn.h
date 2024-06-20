@@ -19,6 +19,16 @@
 #define TFFN_H
 
 
+#ifndef TFFN_VA_START
+    #include <stdarg.h>
+    #define TFFN_VA_START va_start
+#endif
+
+#ifndef TFFN_VA_END
+    #include <stdarg.h>
+    #define TFFN_VA_END va_end
+#endif
+
 #ifndef TFFN_ASSERT
     #include <assert.h>
     #define TFFN_ASSERT assert
@@ -40,6 +50,8 @@
 #endif
 
 
+///////////////////////
+
 typedef struct _TFFNStrBuilder {
     char* buffer;     // not NULL terminated
     size_t count;     // how many letters are there in the buffer?
@@ -53,6 +65,34 @@ void tffn_sb_clear(TFFNStrBuilder*);
 void tffn_sb_free(TFFNStrBuilder*);
 char* tffn_sb_to_str(TFFNStrBuilder*);
 
+///////////////////////
+
+typedef struct _step {
+    void (*dynamic_step)(TFFNStrBuilder*); // function to run
+    const char* static_step; // already existing string to replace
+} TFFNStep;
+
+TFFNStep* tffn_step_new_dynamic(void (*dynamicStep)(TFFNStrBuilder*));
+TFFNStep* tffn_step_new_static(const char* staticStep);
+
+///////////////////////
+
+typedef enum _errtype {
+    TFFN_ERR_NONE,
+    TFFN_ERR_DANGLING_CLOSE_BRACKET,
+    TFFN_ERR_NESTING_BRACKETS,
+    TFFN_ERR_DANGLING_IGNORE_TOKEN,
+    TFFN_ERR_UNCLOSED_BRACKET,
+    TFFN_ERR_IGNORE_TOKEN_INSIDE_BRACKET,
+    TFFN_ERR_UNDEFINED_ACTION,
+    TFFN_ERR_ACTION_TEXT_ALREADY_EXISTS
+} TFFNErrorType;
+
+#define TFFN_ERR_TO_STR(et, ...) tffn_err_to_str_internal(et, ##__VA_ARGS__)
+
+const char* tffn_err_to_str_internal(TFFNErrorType, ...);
+
+///////////////////////
 
 
 #endif // TFFN_H
@@ -89,22 +129,19 @@ TFFNStrBuilder* tffn_sb_new_from(const char* buffer, size_t char_count) {
 }
 
 
-
-
 void tffn_sb_append(TFFNStrBuilder* sb, const char* buffer, size_t char_count) {
     if (buffer == NULL || char_count <= 0) return; // nothing to append
 
     // The given string doesnt fit into the current buffer, so increase the buffer capacity
     while(sb->count + char_count > sb->capacity) {
         sb->capacity *= 2;
-        sb->buffer = TFFN_REALLOC(sb->buffer, sb->capacity * sizeof(char));
-        TFFN_ASSERT(sb->buffer != NULL && "Couldn't allocate memory");
     }
 
-    for (size_t i = 0; i < char_count; i++) {
-        sb->buffer[sb->count] = buffer[i];
-        sb->count++;
-    }
+    sb->buffer = TFFN_REALLOC(sb->buffer, sb->capacity * sizeof(char));
+    TFFN_ASSERT(sb->buffer != NULL && "Couldn't allocate memory");
+
+    memcpy(sb->buffer + sb->count, buffer, char_count * sizeof(char));
+    sb->count += char_count;
 }
 
 
@@ -128,6 +165,61 @@ char* tffn_sb_to_str(TFFNStrBuilder* sb) {
     res[sb->count] = '\0';
     return res;
 }
+
+
+///////////////////
+
+TFFNStep* tffn_step_new_dynamic(void (*dyn_func)(TFFNStrBuilder*)) {
+    TFFNStep* step = (TFFNStep*) TFFN_MALLOC(sizeof(TFFNStep));
+    TFFN_ASSERT(step != NULL);
+    step->dynamic_step = dyn_func;
+    step->static_step = NULL;
+    return step;
+}
+
+TFFNStep* tffn_step_new_static(const char* static_str) {
+    TFFNStep* step = (TFFNStep*) TFFN_MALLOC(sizeof(TFFNStep));
+    TFFN_ASSERT(step != NULL);
+    step->dynamic_step = NULL;
+    step->static_step = static_str;
+    return step;
+}
+
+///////////////////
+
+
+const char* tffn_err_to_str_internal(TFFNErrorType et, ...) {
+    if(et == TFFN_ERR_NONE) return NULL;
+
+    static char buffer[256];
+    va_list args;
+    TFFN_VA_START(args, et);
+
+    if(et == TFFN_ERR_DANGLING_CLOSE_BRACKET) 
+        snprintf(buffer, sizeof(buffer), "INVALID FORMAT: you forgot to open a bracket\n");
+    else if(et == TFFN_ERR_NESTING_BRACKETS) 
+        snprintf(buffer, sizeof(buffer), "INVALID FORMAT: nesting brackets are prohibited in TFFN\n");
+    else if(et == TFFN_ERR_DANGLING_IGNORE_TOKEN) 
+        snprintf(buffer, sizeof(buffer), "INVALID FORMAT: format string cant end with '!'\n");
+    else if(et == TFFN_ERR_UNCLOSED_BRACKET) 
+        snprintf(buffer, sizeof(buffer), "INVALID FORMAT: you forgot to close a bracket\n");
+    else if(et == TFFN_ERR_IGNORE_TOKEN_INSIDE_BRACKET) 
+        snprintf(buffer, sizeof(buffer), "INVALID FORMAT: '!' token cant be used inside brackets\n");
+    else if(et == TFFN_ERR_UNDEFINED_ACTION) 
+        vsnprintf(buffer, sizeof(buffer), "INVALID FORMAT: '%s' action was never defined to the parser\n", args);
+    else if(et == TFFN_ERR_ACTION_TEXT_ALREADY_EXISTS) 
+        vsnprintf(buffer, sizeof(buffer), "An action with '%s' name already exists!\n", args);
+    else buffer[0] = '\0'; // Empty string for no error
+
+    TFFN_VA_END(args);
+    return buffer;
+}
+
+
+
+///////////////////
+
+
 
 
 #ifdef __cplusplus
@@ -343,4 +435,3 @@ char* tffn_sb_to_str(TFFNStrBuilder* sb) {
 //   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //   See the License for the specific language governing permissions and
 //   limitations under the License.
-
