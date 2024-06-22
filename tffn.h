@@ -19,6 +19,9 @@
 #define TFFN_H
 
 
+#include <stdint.h>
+
+
 #ifndef TFFN_VA_START
     #include <stdarg.h>
     #define TFFN_VA_START va_start
@@ -44,6 +47,11 @@
     #define TFFN_REALLOC realloc
 #endif
 
+#ifndef TFFN_CALLOC
+    #include <stdlib.h>
+    #define TFFN_CALLOC calloc
+#endif
+
 #ifndef TFFN_FREE
     #include <stdlib.h>
     #define TFFN_FREE free
@@ -67,7 +75,7 @@ char* tffn_sb_to_str(TFFNStrBuilder*);
 
 ///////////////////////
 
-typedef struct _step {
+typedef struct _TFFNStep {
     void (*dynamic_step)(TFFNStrBuilder*); // function to run
     const char* static_step; // already existing string to replace
 } TFFNStep;
@@ -77,7 +85,7 @@ TFFNStep* tffn_step_new_static(const char* staticStep);
 
 ///////////////////////
 
-typedef enum _errtype {
+typedef enum _TFFNErrorType {
     TFFN_ERR_NONE,
     TFFN_ERR_DANGLING_CLOSE_BRACKET,
     TFFN_ERR_NESTING_BRACKETS,
@@ -94,6 +102,26 @@ const char* tffn_err_to_str_internal(TFFNErrorType, ...);
 
 ///////////////////////
 
+typedef struct _TFFNEntry {
+    char* key; // must be NULL terminated!
+    size_t key_length;
+    void* object;
+    struct _TFFNEntry* next;
+} TFFNEntry;
+
+typedef struct _TFFNHashTable {
+    uint32_t table_size;
+    TFFNEntry** entries;
+} TFFNHashTable;
+
+TFFNHashTable* tffn_htable_new(uint32_t);
+void tffn_htable_free(TFFNHashTable*);
+int tffn_htable_insert(TFFNHashTable*, const char*, void*);
+void* tffn_htable_lookup(TFFNHashTable*, const char*);
+void* tffn_htable_delete(TFFNHashTable*, const char*);
+
+///////////////////////
+
 
 #endif // TFFN_H
 
@@ -105,6 +133,9 @@ const char* tffn_err_to_str_internal(TFFNErrorType, ...);
 #ifdef __cplusplus
 extern "C" {  // prevents name mangling of functions when used in C++
 #endif
+
+
+/////////////////// StrBuilder Struct ///////////////////
 
 
 TFFNStrBuilder* tffn_sb_new(size_t initial_capacity) {
@@ -167,7 +198,8 @@ char* tffn_sb_to_str(TFFNStrBuilder* sb) {
 }
 
 
-///////////////////
+/////////////////// Step Struct ///////////////////
+
 
 TFFNStep* tffn_step_new_dynamic(void (*dyn_func)(TFFNStrBuilder*)) {
     TFFNStep* step = (TFFNStep*) TFFN_MALLOC(sizeof(TFFNStep));
@@ -177,6 +209,7 @@ TFFNStep* tffn_step_new_dynamic(void (*dyn_func)(TFFNStrBuilder*)) {
     return step;
 }
 
+
 TFFNStep* tffn_step_new_static(const char* static_str) {
     TFFNStep* step = (TFFNStep*) TFFN_MALLOC(sizeof(TFFNStep));
     TFFN_ASSERT(step != NULL);
@@ -185,7 +218,8 @@ TFFNStep* tffn_step_new_static(const char* static_str) {
     return step;
 }
 
-///////////////////
+
+/////////////////// Error Enum ///////////////////
 
 
 const char* tffn_err_to_str_internal(TFFNErrorType et, ...) {
@@ -216,8 +250,141 @@ const char* tffn_err_to_str_internal(TFFNErrorType et, ...) {
 }
 
 
+/////////////////// HashTable Struct ///////////////////
 
-///////////////////
+
+static size_t tffn_htable_str_to_index(TFFNHashTable* ht, const char* str) {
+    uint64_t hash = 0;
+
+    size_t str_length = strlen(str);
+    for (int i = 0; i < str_length; i++) {
+        hash *= 17;
+        hash += str[i];
+    }
+
+    // Apply the murmur hash algorithm onto the result, the following implementation was
+    // heavily inspired by this public domain code which was written by Austin Appleby:
+    // https://github.com/aappleby/smhasher/blob/master/src/MurmurHash3.cpp
+    hash ^= hash >> 33;
+    hash *= 0xFF51AFD7ED558CCDL;
+    hash ^= hash >> 33;
+    hash *= 0xC4CEB9FE1A85EC53L;
+    hash ^= hash >> 33;
+
+    // Compute the index which is in range [0, ht->table_size)
+    size_t index = hash % ht->table_size;
+    return index;
+}
+
+
+TFFNHashTable* tffn_htable_new(uint32_t size) {
+    TFFNHashTable* ht = (TFFNHashTable*) TFFN_MALLOC(sizeof(TFFNHashTable));
+    ht->table_size = size;
+    ht->entries = (TFFNEntry**) TFFN_CALLOC(sizeof(TFFNEntry*), ht->table_size);
+    return ht;
+}
+
+
+void tffn_htable_free(TFFNHashTable* ht) {
+    if (ht == NULL) return;
+
+    for (size_t i = 0; i < ht->table_size; i++) {
+        TFFNEntry* temp = ht->entries[i];
+        while (temp != NULL) {
+            TFFNEntry* next = temp->next;
+            TFFN_FREE(temp->key);
+            TFFN_FREE(temp);
+            temp = next;
+        }
+    }
+
+    TFFN_FREE(ht->entries);
+    TFFN_FREE(ht);
+}
+
+
+int tffn_htable_insert(TFFNHashTable* ht, const char* key, void* object) {
+    TFFN_ASSERT(ht != NULL);
+    TFFN_ASSERT(key != NULL);
+    
+    // Do nothing if the object being inserted is NULL
+    if(object == NULL) return 0;
+
+    // Do nothing if the key already exists
+    size_t str_length = strlen(key);
+    if(tffn_htable_lookup(ht, key) != NULL) return 0;
+
+    // Create new entry
+    TFFNEntry* entry = (TFFNEntry*) TFFN_MALLOC(sizeof(TFFNEntry));
+    entry->object = object;
+    entry->key = (char*) TFFN_MALLOC(str_length+1);
+    for(int i = 0; i < str_length; i++) {
+        entry->key[i] = key[i];
+    }
+    entry->key[str_length] = '\0';
+    entry->key_length = str_length;
+
+    // Insert new entry
+    size_t index = tffn_htable_str_to_index(ht, key);
+    entry->next = ht->entries[index];
+    ht->entries[index] = entry;
+    return 1;
+}
+
+
+static int tffn_util_strequal(const char* str1, size_t len1, const char* str2, size_t len2) {
+    if(len1 != len2) return 0;
+    
+    for(int i = 0; i < len1; i++) {
+        if(str1[i] != str2[i]) return 0;
+    }
+
+    return 1;
+}
+
+
+void* tffn_htable_lookup(TFFNHashTable* ht, const char* key) {
+    TFFN_ASSERT(ht != NULL);
+    TFFN_ASSERT(key != NULL);
+
+    size_t str_length = strlen(key);
+    size_t index = tffn_htable_str_to_index(ht, key);
+    TFFNEntry* temp = ht->entries[index];
+    while(temp != NULL) {
+        if(tffn_util_strequal(temp->key, temp->key_length, key, str_length)) break;
+        temp = temp->next;
+    }
+
+    if(temp == NULL) return NULL;
+    return temp->object;
+}
+
+
+void* tffn_htable_delete(TFFNHashTable* ht, const char* key) {
+    TFFN_ASSERT(ht != NULL);
+    TFFN_ASSERT(key != NULL);
+
+    size_t str_length = strlen(key);
+    size_t index = tffn_htable_str_to_index(ht, key);
+    TFFNEntry* temp = ht->entries[index];
+    TFFNEntry* prev = NULL;
+    while(temp != NULL) {
+        if(tffn_util_strequal(temp->key, temp->key_length, key, str_length)) break;
+        prev = temp;
+        temp = temp->next;
+    }
+
+    if(temp == NULL) return NULL;
+
+    if(prev == NULL) ht->entries[index] = temp->next;
+    else prev->next = temp->next;
+    
+    void* object = temp->object;
+    TFFN_FREE(temp);
+    return object;
+}
+
+
 
 
 
