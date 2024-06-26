@@ -8,7 +8,7 @@ IF EXIST tests.exe (
     DEL /F tffn-test.exe
 )
 
-gcc -o tests tests.c -I.
+gcc -Wall -Wextra -Werror -Wpedantic -o tests tests.c -I.
 
 IF %ERRORLEVEL% NEQ 0 (
     echo Compilation failed.
