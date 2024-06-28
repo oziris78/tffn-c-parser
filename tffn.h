@@ -44,6 +44,7 @@ typedef struct _TFFNStrBuilder {
 TFFNStrBuilder* tffn_sb_new(size_t);
 void tffn_sb_append_sized(TFFNStrBuilder*, const char*, size_t);
 void tffn_sb_append_nterm(TFFNStrBuilder*, const char*);
+void tffn_sb_append_char(TFFNStrBuilder*, char);
 void tffn_sb_clear(TFFNStrBuilder*);
 void tffn_sb_free(TFFNStrBuilder*);
 char* tffn_sb_to_str(TFFNStrBuilder*);
@@ -62,13 +63,6 @@ typedef struct _TFFNHashTable {
     TFFNEntry** entries;
 } TFFNHashTable;
 
-TFFNHashTable* tffn_htable_new(uint32_t);
-void tffn_htable_free(TFFNHashTable*);
-bool tffn_htable_insert(TFFNHashTable*, const char*, void*);
-void* tffn_htable_lookup(TFFNHashTable*, const char*);
-
-///////////////////////
-
 typedef struct _TFFNFuncEntry {
     char* key; // must be NULL terminated!
     size_t key_length;
@@ -81,9 +75,8 @@ typedef struct _TFFNFuncHashTable {
     TFFNFuncEntry** entries;
 } TFFNFuncHashTable;
 
-TFFNFuncHashTable* tffn_fhtable_new(uint32_t);
-bool tffn_fhtable_insert(TFFNFuncHashTable*, const char*, void(*)(TFFNStrBuilder*));
-void tffn_fhtable_free(TFFNFuncHashTable*);
+void* tffn_htable_lookup(TFFNHashTable*, const char*);
+
 void (*tffn_fhtable_lookup(TFFNFuncHashTable*, const char*))(TFFNStrBuilder*);
 
 
@@ -200,6 +193,7 @@ void tffn_sb_free(TFFNStrBuilder* sb) {
 
 char* tffn_sb_to_str(TFFNStrBuilder* sb) {
     char* res = (char*) TFFN_CALLOC((sb->count+1), sizeof(char));
+    TFFN_ASSERT(res != NULL && "Couldn't allocate memory");
     for (size_t i = 0; i < sb->count; i++) {
         res[i] = sb->buffer[i];
     }
@@ -235,48 +229,23 @@ static size_t tffn_htable_str_to_index(uint32_t table_size, const char* str) {
 }
 
 
-TFFNHashTable* tffn_htable_new(uint32_t size) {
-    TFFNHashTable* ht = (TFFNHashTable*) TFFN_MALLOC(sizeof(TFFNHashTable));
-    ht->table_size = size;
-    ht->entries = (TFFNEntry**) TFFN_CALLOC(sizeof(TFFNEntry*), ht->table_size);
-    return ht;
-}
-
-
-void tffn_htable_free(TFFNHashTable* ht) {
-    if (ht == NULL) return;
-
-    for (size_t i = 0; i < ht->table_size; i++) {
-        TFFNEntry* temp = ht->entries[i];
-        while (temp != NULL) {
-            TFFNEntry* next = temp->next;
-            TFFN_FREE(temp->key);
-            TFFN_FREE(temp);
-            temp = next;
-        }
-    }
-
-    TFFN_FREE(ht->entries);
-    TFFN_FREE(ht);
-}
-
-
-bool tffn_htable_insert(TFFNHashTable* ht, const char* key, void* object) {
+static void tffn_htable_insert(TFFNHashTable* ht, const char* key, void* object) {
     TFFN_ASSERT(ht != NULL);
     TFFN_ASSERT(key != NULL);
     
     // Do nothing if the object being inserted is NULL
-    if(object == NULL) return false;
+    if(object == NULL) return;
 
     // Do nothing if the key already exists
     size_t str_length = strlen(key);
-    if(tffn_htable_lookup(ht, key) != NULL) return false;
+    if(tffn_htable_lookup(ht, key) != NULL) return;
 
     // Create new entry
     TFFNEntry* entry = (TFFNEntry*) TFFN_MALLOC(sizeof(TFFNEntry));
-    TFFN_ASSERT(entry != NULL);
+    TFFN_ASSERT(entry != NULL && "Couldn't allocate memory");
     entry->object = object;
     entry->key = (char*) TFFN_MALLOC(str_length+1);
+    TFFN_ASSERT(entry->key != NULL && "Couldn't allocate memory");
     for(size_t i = 0; i < str_length; i++) {
         entry->key[i] = key[i];
     }
@@ -287,7 +256,50 @@ bool tffn_htable_insert(TFFNHashTable* ht, const char* key, void* object) {
     size_t index = tffn_htable_str_to_index(ht->table_size, key);
     entry->next = ht->entries[index];
     ht->entries[index] = entry;
-    return true;
+}
+
+
+static void tffn_fhtable_insert(TFFNFuncHashTable* ht, const char* key, void(*func)(TFFNStrBuilder*)) {
+    TFFN_ASSERT(ht != NULL);
+    TFFN_ASSERT(key != NULL);
+    TFFN_ASSERT(func != NULL);
+
+    // Do nothing if the key already exists
+    size_t str_length = strlen(key);
+    if(tffn_fhtable_lookup(ht, key) != NULL) return;
+
+    // Create new entry
+    TFFNFuncEntry* entry = (TFFNFuncEntry*) TFFN_MALLOC(sizeof(TFFNFuncEntry));
+    TFFN_ASSERT(entry != NULL && "Couldn't allocate memory");
+    entry->func = func;
+    entry->key = (char*) TFFN_MALLOC(str_length + 1);
+    TFFN_ASSERT(entry->key != NULL && "Couldn't allocate memory");
+    for(size_t i = 0; i < str_length; i++) {
+        entry->key[i] = key[i];
+    }
+    entry->key[str_length] = '\0';
+    entry->key_length = str_length;
+
+    // Insert new entry
+    size_t index = tffn_htable_str_to_index(ht->table_size, key);
+    entry->next = ht->entries[index];
+    ht->entries[index] = entry;
+}
+
+
+void (*tffn_fhtable_lookup(TFFNFuncHashTable* ht, const char* key))(TFFNStrBuilder*) {
+    TFFN_ASSERT(ht != NULL);
+    TFFN_ASSERT(key != NULL);
+
+    size_t index = tffn_htable_str_to_index(ht->table_size, key);
+    TFFNFuncEntry* temp = ht->entries[index];
+    while(temp != NULL) {
+        if(strcmp(temp->key, key) == 0) break;
+        temp = temp->next;
+    }
+
+    if(temp == NULL) return NULL;
+    return temp->func;
 }
 
 
@@ -306,78 +318,6 @@ void* tffn_htable_lookup(TFFNHashTable* ht, const char* key) {
     return temp->object;
 }
 
-
-/////////////////// FuncHashTable Struct ///////////////////
-
-
-TFFNFuncHashTable* tffn_fhtable_new(uint32_t size) {
-    TFFNFuncHashTable* ht = (TFFNFuncHashTable*) TFFN_MALLOC(sizeof(TFFNFuncHashTable));
-    ht->table_size = size;
-    ht->entries = (TFFNFuncEntry**) TFFN_CALLOC(sizeof(TFFNFuncEntry*), ht->table_size);
-    return ht;
-}
-
-
-void tffn_fhtable_free(TFFNFuncHashTable* ht) {
-    if (ht == NULL) return;
-
-    for (size_t i = 0; i < ht->table_size; i++) {
-        TFFNFuncEntry* temp = ht->entries[i];
-        while (temp != NULL) {
-            TFFNFuncEntry* next = temp->next;
-            TFFN_FREE(temp->key);
-            TFFN_FREE(temp);
-            temp = next;
-        }
-    }
-
-    TFFN_FREE(ht->entries);
-    TFFN_FREE(ht);
-}
-
-
-bool tffn_fhtable_insert(TFFNFuncHashTable* ht, const char* key, void(*func)(TFFNStrBuilder*)) {
-    TFFN_ASSERT(ht != NULL);
-    TFFN_ASSERT(key != NULL);
-    TFFN_ASSERT(func != NULL);
-
-    // Do nothing if the key already exists
-    size_t str_length = strlen(key);
-    if(tffn_fhtable_lookup(ht, key) != NULL) return false;
-
-    // Create new entry
-    TFFNFuncEntry* entry = (TFFNFuncEntry*) TFFN_MALLOC(sizeof(TFFNFuncEntry));
-    TFFN_ASSERT(entry != NULL);
-    entry->func = func;
-    entry->key = (char*) TFFN_MALLOC(str_length+1);
-    for(size_t i = 0; i < str_length; i++) {
-        entry->key[i] = key[i];
-    }
-    entry->key[str_length] = '\0';
-    entry->key_length = str_length;
-
-    // Insert new entry
-    size_t index = tffn_htable_str_to_index(ht->table_size, key);
-    entry->next = ht->entries[index];
-    ht->entries[index] = entry;
-    return true;
-}
-
-
-void (*tffn_fhtable_lookup(TFFNFuncHashTable* ht, const char* key))(TFFNStrBuilder*) {
-    TFFN_ASSERT(ht != NULL);
-    TFFN_ASSERT(key != NULL);
-
-    size_t index = tffn_htable_str_to_index(ht->table_size, key);
-    TFFNFuncEntry* temp = ht->entries[index];
-    while(temp != NULL) {
-        if(strcmp(temp->key, key) == 0) break;
-        temp = temp->next;
-    }
-
-    if(temp == NULL) return NULL;
-    return temp->func;
-}
 
 
 /////////////////// Parser Struct ///////////////////
@@ -405,7 +345,7 @@ static int tffn_parser_contains_act_text(TFFNParser* parser, char* act_text) {
 
 static void tffn_util_llist_append_str(TFFNStep** steps_head, char* static_str) {
     TFFNStep* s = (TFFNStep*) TFFN_MALLOC(sizeof(TFFNStep));
-    TFFN_ASSERT(s != NULL);
+    TFFN_ASSERT(s != NULL && "Couldn't allocate memory");
     s->dynamic_step = NULL;
     s->static_step = static_str;
     s->next = NULL;
@@ -423,7 +363,7 @@ static void tffn_util_llist_append_str(TFFNStep** steps_head, char* static_str) 
 
 static void tffn_util_llist_append_dyn(TFFNStep** steps_head, void(*dynamic_act)(TFFNStrBuilder*)) {
     TFFNStep* s = (TFFNStep*) TFFN_MALLOC(sizeof(TFFNStep));
-    TFFN_ASSERT(s != NULL);
+    TFFN_ASSERT(s != NULL && "Couldn't allocate memory");
     s->dynamic_step = dynamic_act;
     s->static_step = NULL;
     s->next = NULL;
@@ -568,9 +508,56 @@ static TFFNStep* tffn_parse_steps(TFFNParser* parser, const char* format) {
 
 
 void tffn_parser_free(TFFNParser* parser) {
-    tffn_htable_free(parser->format_cache);
-    tffn_fhtable_free(parser->dynamic_actions);
-    tffn_htable_free(parser->static_actions);
+    if(parser == NULL) return;
+
+    // Free parser->format_cache
+    if (parser->format_cache != NULL) {
+        for (size_t i = 0; i < parser->format_cache->table_size; i++) {
+            TFFNEntry* temp = parser->format_cache->entries[i];
+            while (temp != NULL) {
+                TFFNEntry* next = temp->next;
+                TFFN_FREE(temp->key);
+                TFFN_FREE(temp);
+                temp = next;
+            }
+        }
+
+        TFFN_FREE(parser->format_cache->entries);
+        TFFN_FREE(parser->format_cache);
+    }
+    
+    // Free parser->static_actions
+    if (parser->static_actions != NULL) {
+        for (size_t i = 0; i < parser->static_actions->table_size; i++) {
+            TFFNEntry* temp = parser->static_actions->entries[i];
+            while (temp != NULL) {
+                TFFNEntry* next = temp->next;
+                TFFN_FREE(temp->key);
+                TFFN_FREE(temp);
+                temp = next;
+            }
+        }
+
+        TFFN_FREE(parser->static_actions->entries);
+        TFFN_FREE(parser->static_actions);
+    }
+
+    // Free parser->dynamic_actions
+    if (parser->dynamic_actions != NULL) {
+        for (size_t i = 0; i < parser->dynamic_actions->table_size; i++) {
+            TFFNFuncEntry* temp = parser->dynamic_actions->entries[i];
+            while (temp != NULL) {
+                TFFNFuncEntry* next = temp->next;
+                TFFN_FREE(temp->key);
+                TFFN_FREE(temp);
+                temp = next;
+            }
+        }
+
+        TFFN_FREE(parser->dynamic_actions->entries);
+        TFFN_FREE(parser->dynamic_actions);
+    }
+
     tffn_sb_free(parser->sb_part);
     tffn_sb_free(parser->sb_res);
     tffn_sb_free(parser->sb_err);
@@ -580,10 +567,41 @@ void tffn_parser_free(TFFNParser* parser) {
 
 TFFNParser* tffn_parser_new() {
     TFFNParser* parser = (TFFNParser*) TFFN_MALLOC(sizeof(TFFNParser));
-    TFFN_ASSERT(parser != NULL);
-    parser->dynamic_actions = tffn_fhtable_new(128);
-    parser->static_actions = tffn_htable_new(128);
-    parser->format_cache = tffn_htable_new(128);
+    TFFN_ASSERT(parser != NULL && "Couldn't allocate memory");
+    
+    // Init dynamic actions
+    {
+        const uint32_t TABLE_SIZE = 128;
+        parser->dynamic_actions = (TFFNFuncHashTable*) TFFN_MALLOC(sizeof(TFFNFuncHashTable));
+        TFFN_ASSERT(parser->dynamic_actions != NULL && "Couldn't allocate memory");
+
+        parser->dynamic_actions->table_size = TABLE_SIZE;
+        parser->dynamic_actions->entries = (TFFNFuncEntry**) TFFN_CALLOC(sizeof(TFFNFuncEntry*), TABLE_SIZE);
+        TFFN_ASSERT(parser->dynamic_actions->entries != NULL && "Couldn't allocate memory");
+    }
+
+    // Init static actions
+    {
+        const uint32_t TABLE_SIZE = 128;
+        parser->static_actions = (TFFNHashTable*) TFFN_MALLOC(sizeof(TFFNHashTable));
+        TFFN_ASSERT(parser->static_actions != NULL && "Couldn't allocate memory");
+
+        parser->static_actions->table_size = TABLE_SIZE;
+        parser->static_actions->entries = (TFFNEntry**) TFFN_CALLOC(sizeof(TFFNEntry*), TABLE_SIZE);
+        TFFN_ASSERT(parser->static_actions->entries != NULL && "Couldn't allocate memory");
+    }
+
+    // Init format cache
+    {
+        const uint32_t TABLE_SIZE = 128;
+        parser->format_cache = (TFFNHashTable*) TFFN_MALLOC(sizeof(TFFNHashTable));
+        TFFN_ASSERT(parser->format_cache != NULL && "Couldn't allocate memory");
+
+        parser->format_cache->table_size = TABLE_SIZE;
+        parser->format_cache->entries = (TFFNEntry**) TFFN_CALLOC(sizeof(TFFNEntry*), TABLE_SIZE);
+        TFFN_ASSERT(parser->format_cache->entries != NULL && "Couldn't allocate memory");
+    }
+
     parser->sb_part = tffn_sb_new(64);
     parser->sb_err = tffn_sb_new(64);
     parser->sb_res = tffn_sb_new(64);

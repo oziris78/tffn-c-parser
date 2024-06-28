@@ -89,32 +89,7 @@ char* gen_rand_word() {
 // ------------------------------------------------------------ //
 
 
-void htable_tests() {
-    for(uint32_t size = 1; size < 2000; size++) {
-        TFFNHashTable* ht = tffn_htable_new(size);
-        expect_not_null(ht);
 
-        // Insertion
-        char* word1 = gen_rand_word();
-        char* word2 = gen_rand_word();
-        char* word3 = gen_rand_word();
-        char* word4 = gen_rand_word();
-
-        expect_equal_int(1, tffn_htable_insert(ht, word1, (void*)45));
-        expect_equal_int(1, tffn_htable_insert(ht, word2, (void*)7878));
-        expect_equal_int(1, tffn_htable_insert(ht, word3, (void*)3));
-
-        // Lookup
-        expect_equal_int(45, tffn_htable_lookup(ht, word1));
-        expect_equal_int(7878, tffn_htable_lookup(ht, word2));
-        expect_equal_int(3, tffn_htable_lookup(ht, word3));
-        expect_null(tffn_htable_lookup(ht, word4));
-
-        // Freeing
-        tffn_htable_free(ht);
-        free(word1); free(word2); free(word3); free(word4);
-    }
-}
 
 void string_builder_tests() {
     for (size_t cap = 1; cap < 2000; cap *= 2) {
@@ -194,7 +169,7 @@ int main() {
 
     parser_tests();
     string_builder_tests();
-    htable_tests();
+    // htable_tests();
 
     printf("ALL TESTS PASSES!!!!\n");
     return 0;
