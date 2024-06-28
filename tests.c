@@ -26,8 +26,23 @@
 #define expect_equal_int(exp, act) expect_equal_int_inner((intmax_t)(exp), (intmax_t)(act), __FILE__, __LINE__)
 #define expect_equal_str(exp, act) expect_equal_str_inner((const char*)(exp), (const char*)(act), __FILE__, __LINE__)
 #define expect_null(act) expect_null_inner((void*)(act), __FILE__, __LINE__)
+#define expect_not_null(act) expect_not_null_inner((void*)(act), __FILE__, __LINE__)
+#define fail() fail_inner(__FILE__, __LINE__)
 
+void fail_inner(const char* file, int line) {
+    printf("\n---------------------------\n");
+    printf("TEST FAILS!\nPlace: '%s:%d'\n", file, line);
+    printf("---------------------------\n");
+    exit(78);
+}
 
+void expect_not_null_inner(void* ptr, const char* file, int line) {
+    if(ptr != NULL) return;
+    printf("\n---------------------------\n");
+    printf("TEST FAILS!\nPlace: '%s:%d'\nExpected NOT NULL but got NULL\n", file, line);
+    printf("---------------------------\n");
+    exit(78);
+}
 
 void expect_null_inner(void* ptr, const char* file, int line) {
     if(ptr == NULL) return;
@@ -55,11 +70,10 @@ void expect_equal_str_inner(const char* exp, const char* act, const char* file, 
     exit(78);
 }
 
-
 char* gen_rand_word() {
-    const char* letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    int len = strlen(letters);
-    char* word = (char*)malloc(len + 1);
+    static const char* letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    int len = 5 + rand() % 20;
+    char* word = (char*) malloc(len + 1);
 
     for (int i = 0; i < len; ++i) {
         int randomIndex = rand() % len;
@@ -74,31 +88,11 @@ char* gen_rand_word() {
 
 // ------------------------------------------------------------ //
 
-void string_builder_tests();
-void step_struct_tests();
-void error_type_tests();
-void htable_tests();
-
-
-int main() {
-    srand(time(NULL));
-
-    string_builder_tests();
-    step_struct_tests();
-    error_type_tests();
-    htable_tests();
-
-    printf("ALL TESTS PASSES!!!!\n");
-    return 0;
-}
-
-
-// ------------------------------------------------------------ //
-
 
 void htable_tests() {
     for(uint32_t size = 1; size < 2000; size++) {
         TFFNHashTable* ht = tffn_htable_new(size);
+        expect_not_null(ht);
 
         // Insertion
         char* word1 = gen_rand_word();
@@ -116,86 +110,16 @@ void htable_tests() {
         expect_equal_int(3, tffn_htable_lookup(ht, word3));
         expect_null(tffn_htable_lookup(ht, word4));
 
-        // Deletion
-        expect_equal_int(7878, tffn_htable_delete(ht, word2));
-        expect_null(tffn_htable_lookup(ht, word2));
-
         // Freeing
         tffn_htable_free(ht);
+        free(word1); free(word2); free(word3); free(word4);
     }
 }
-
-
-
-// For dynamic step testing
-void empty_func(TFFNStrBuilder *sb) {}
-
-
-void step_struct_tests() {
-    // DYNAMIC
-    {
-        TFFNStep *step = tffn_step_new_dynamic(empty_func);
-        assert(step != NULL);
-        assert(step->dynamic_step == empty_func);
-        assert(step->static_step == NULL);
-        TFFN_FREE(step);
-    }
-    // STATIC
-    {
-        const char *static_str = "Static Step";
-        TFFNStep *step = tffn_step_new_static(static_str);
-        assert(step != NULL);
-        assert(step->dynamic_step == NULL);
-        assert(strcmp(step->static_step, static_str) == 0);
-        TFFN_FREE(step);
-    }
-}
-
-
-void error_type_tests() {
-    expect_equal_str(
-        "INVALID FORMAT: you forgot to open a bracket\n",
-        TFFN_ERR_TO_STR(TFFN_ERR_DANGLING_CLOSE_BRACKET)
-    );
-
-    expect_equal_str(
-        "INVALID FORMAT: nesting brackets are prohibited in TFFN\n",
-        TFFN_ERR_TO_STR(TFFN_ERR_NESTING_BRACKETS)
-    );
-
-    expect_equal_str(
-        "INVALID FORMAT: format string cant end with '!'\n", 
-        TFFN_ERR_TO_STR(TFFN_ERR_DANGLING_IGNORE_TOKEN)
-    );
-
-    expect_equal_str(
-        "INVALID FORMAT: you forgot to close a bracket\n", 
-        TFFN_ERR_TO_STR(TFFN_ERR_UNCLOSED_BRACKET)
-    );
-    
-    expect_equal_str(
-        "INVALID FORMAT: '!' token cant be used inside brackets\n", 
-        TFFN_ERR_TO_STR(TFFN_ERR_IGNORE_TOKEN_INSIDE_BRACKET)
-    );
-
-    expect_equal_str(
-        "INVALID FORMAT: 'actionnnn' action was never defined to the parser\n",
-        TFFN_ERR_TO_STR(TFFN_ERR_UNDEFINED_ACTION, "actionnnn")
-    );
-
-    expect_equal_str(
-        "An action with 'daksjjakdsjdkas' name already exists!\n",
-        TFFN_ERR_TO_STR(TFFN_ERR_ACTION_TEXT_ALREADY_EXISTS, "daksjjakdsjdkas")
-    );
-
-    expect_null(TFFN_ERR_TO_STR(TFFN_ERR_NONE));
-}
-
 
 void string_builder_tests() {
     for (size_t cap = 1; cap < 2000; cap *= 2) {
         TFFNStrBuilder* sb = tffn_sb_new(cap);
-        tffn_sb_append(sb, "Hello world!", 12);
+        tffn_sb_append_sized(sb, "Hello world!", 12);
         char* str = tffn_sb_to_str(sb);
         expect_equal_str("Hello world!", str);
         free(str);
@@ -204,9 +128,9 @@ void string_builder_tests() {
     
     for (size_t cap = 1; cap < 2000; cap *= 2) {
         TFFNStrBuilder* sb = tffn_sb_new(cap);
-        tffn_sb_append(sb, "Hello world!", 12);
-        tffn_sb_append(sb, "Hello world!", 12);
-        tffn_sb_append(sb, "Hello world!", 12);
+        tffn_sb_append_sized(sb, "Hello world!", 12);
+        tffn_sb_append_sized(sb, "Hello world!", 12);
+        tffn_sb_append_sized(sb, "Hello world!", 12);
         char* str = tffn_sb_to_str(sb);
         expect_equal_str("Hello world!Hello world!Hello world!", str);
         free(str);
@@ -215,22 +139,65 @@ void string_builder_tests() {
     
     for (size_t cap = 1; cap < 2000; cap *= 2) {
         TFFNStrBuilder* sb = tffn_sb_new(cap);
-        tffn_sb_append(sb, "Hello world!", 12);
+        tffn_sb_append_sized(sb, "Hello world!", 12);
         tffn_sb_clear(sb);
-        tffn_sb_append(sb, "Hello world!", 12);
-        tffn_sb_append(sb, "Hello world!", 12);
+        tffn_sb_append_sized(sb, "Hello world!", 12);
+        tffn_sb_append_sized(sb, "Hello world!", 12);
         char* str = tffn_sb_to_str(sb);
         expect_equal_str("Hello world!Hello world!", str);
         free(str);
         tffn_sb_free(sb);
     }
-
-    {
-        TFFNStrBuilder sb = *tffn_sb_new_from("Hello", 5);
-        tffn_sb_append(&sb, " world!", 7);
-        char* str = tffn_sb_to_str(&sb);
-        expect_equal_str("Hello world!", str);
-        free(str);
-    }
 }
+
+int global_num = 0;
+
+void inc_g_num(TFFNStrBuilder* sb) {
+    char str[10];
+    sprintf(str, "%d", global_num);
+    global_num++;
+
+    tffn_sb_append_nterm(sb, str);
+}
+
+void parser_tests() {
+    char* str = NULL;
+    TFFNParser* parser = tffn_parser_new();
+    tffn_parser_define_dynamic_action(parser, "inc", inc_g_num);
+    tffn_parser_define_static_action(parser, "author", "oziris78");
+    tffn_parser_define_static_action(parser, "hello", "Hello world!");
+
+    str = tffn_parser_parse(parser, "[hello]");
+    if(!tffn_parser_okay(parser)) fail();
+    expect_equal_str("Hello world!", str);
+    free(str);
+    
+    str = tffn_parser_parse(parser, "[hello] [author] [inc]");
+    if(!tffn_parser_okay(parser)) fail();
+    expect_equal_str("Hello world! oziris78 0", str);
+    free(str);
+    
+    global_num = 5;
+    str = tffn_parser_parse(parser, "[inc] [inc][inc][inc]");
+    if(!tffn_parser_okay(parser)) fail();
+    expect_equal_str("5 678", str);
+    free(str);
+
+    tffn_parser_free(parser);
+}
+
+
+
+int main() {
+    srand(time(NULL));
+    printf("Running tests...\n");
+
+    parser_tests();
+    string_builder_tests();
+    htable_tests();
+
+    printf("ALL TESTS PASSES!!!!\n");
+    return 0;
+}
+
 

@@ -19,43 +19,18 @@
 #define TFFN_H
 
 
+#define TFFN_ASSERT assert
+#define TFFN_MALLOC malloc
+#define TFFN_REALLOC realloc
+#define TFFN_CALLOC calloc
+#define TFFN_FREE free
+
+
+#include <assert.h>
+#include <stdbool.h>
+#include <stdlib.h>
 #include <stdint.h>
-
-
-#ifndef TFFN_VA_START
-    #include <stdarg.h>
-    #define TFFN_VA_START va_start
-#endif
-
-#ifndef TFFN_VA_END
-    #include <stdarg.h>
-    #define TFFN_VA_END va_end
-#endif
-
-#ifndef TFFN_ASSERT
-    #include <assert.h>
-    #define TFFN_ASSERT assert
-#endif
-
-#ifndef TFFN_MALLOC
-    #include <stdlib.h>
-    #define TFFN_MALLOC malloc
-#endif
-
-#ifndef TFFN_REALLOC
-    #include <stdlib.h>
-    #define TFFN_REALLOC realloc
-#endif
-
-#ifndef TFFN_CALLOC
-    #include <stdlib.h>
-    #define TFFN_CALLOC calloc
-#endif
-
-#ifndef TFFN_FREE
-    #include <stdlib.h>
-    #define TFFN_FREE free
-#endif
+#include <string.h>
 
 
 ///////////////////////
@@ -67,38 +42,11 @@ typedef struct _TFFNStrBuilder {
 } TFFNStrBuilder;
 
 TFFNStrBuilder* tffn_sb_new(size_t);
-TFFNStrBuilder* tffn_sb_new_from(const char*, size_t);
-void tffn_sb_append(TFFNStrBuilder*, const char*, size_t);
+void tffn_sb_append_sized(TFFNStrBuilder*, const char*, size_t);
+void tffn_sb_append_nterm(TFFNStrBuilder*, const char*);
 void tffn_sb_clear(TFFNStrBuilder*);
 void tffn_sb_free(TFFNStrBuilder*);
 char* tffn_sb_to_str(TFFNStrBuilder*);
-
-///////////////////////
-
-typedef struct _TFFNStep {
-    void (*dynamic_step)(TFFNStrBuilder*); // function to run
-    const char* static_step; // already existing string to replace
-} TFFNStep;
-
-TFFNStep* tffn_step_new_dynamic(void (*dynamicStep)(TFFNStrBuilder*));
-TFFNStep* tffn_step_new_static(const char* staticStep);
-
-///////////////////////
-
-typedef enum _TFFNErrorType {
-    TFFN_ERR_NONE,
-    TFFN_ERR_DANGLING_CLOSE_BRACKET,
-    TFFN_ERR_NESTING_BRACKETS,
-    TFFN_ERR_DANGLING_IGNORE_TOKEN,
-    TFFN_ERR_UNCLOSED_BRACKET,
-    TFFN_ERR_IGNORE_TOKEN_INSIDE_BRACKET,
-    TFFN_ERR_UNDEFINED_ACTION,
-    TFFN_ERR_ACTION_TEXT_ALREADY_EXISTS
-} TFFNErrorType;
-
-#define TFFN_ERR_TO_STR(et, ...) tffn_err_to_str_internal(et, ##__VA_ARGS__)
-
-const char* tffn_err_to_str_internal(TFFNErrorType, ...);
 
 ///////////////////////
 
@@ -116,9 +64,53 @@ typedef struct _TFFNHashTable {
 
 TFFNHashTable* tffn_htable_new(uint32_t);
 void tffn_htable_free(TFFNHashTable*);
-int tffn_htable_insert(TFFNHashTable*, const char*, void*);
+bool tffn_htable_insert(TFFNHashTable*, const char*, void*);
 void* tffn_htable_lookup(TFFNHashTable*, const char*);
-void* tffn_htable_delete(TFFNHashTable*, const char*);
+
+///////////////////////
+
+typedef struct _TFFNFuncEntry {
+    char* key; // must be NULL terminated!
+    size_t key_length;
+    void(*func)(TFFNStrBuilder*);
+    struct _TFFNFuncEntry* next;
+} TFFNFuncEntry;
+
+typedef struct _TFFNFuncHashTable {
+    uint32_t table_size;
+    TFFNFuncEntry** entries;
+} TFFNFuncHashTable;
+
+TFFNFuncHashTable* tffn_fhtable_new(uint32_t);
+bool tffn_fhtable_insert(TFFNFuncHashTable*, const char*, void(*)(TFFNStrBuilder*));
+void tffn_fhtable_free(TFFNFuncHashTable*);
+void (*tffn_fhtable_lookup(TFFNFuncHashTable*, const char*))(TFFNStrBuilder*);
+
+
+///////////////////////
+
+typedef struct _TFFNStep {
+    void (*dynamic_step)(TFFNStrBuilder*); // function to run
+    const char* static_step; // already existing string to replace
+    struct _TFFNStep* next;
+} TFFNStep;
+
+typedef struct _TFFNParser {
+    TFFNFuncHashTable* dynamic_actions;  // Objects are "void(*func)(TFFNStrBuilder*)"
+    TFFNHashTable* static_actions;       // Objects are "char*"
+    TFFNHashTable* format_cache;         // Objects are "TFFNStep*"
+    TFFNStrBuilder* sb_res;              // for speed
+    TFFNStrBuilder* sb_part;             // for speed
+    TFFNStrBuilder* sb_err;              // not NULL if an exception happened
+} TFFNParser;
+
+TFFNParser* tffn_parser_new();
+bool tffn_parser_okay(TFFNParser*);
+void tffn_parser_define_static_action(TFFNParser*, char*, char*);
+void tffn_parser_define_dynamic_action(TFFNParser*, char*, void(*f)(TFFNStrBuilder*));
+char* tffn_parser_parse(TFFNParser*, const char*);
+void tffn_parser_free(TFFNParser*);
+
 
 ///////////////////////
 
@@ -145,34 +137,49 @@ TFFNStrBuilder* tffn_sb_new(size_t initial_capacity) {
 
     sb->count = 0;
     sb->capacity = initial_capacity;
-    sb->buffer = (char*) TFFN_MALLOC(sb->capacity * sizeof(char));
+    sb->buffer = (char*) TFFN_CALLOC(sb->capacity, sizeof(char));
     TFFN_ASSERT(sb->buffer != NULL && "Couldn't allocate memory");
 
     return sb;
 }
 
 
-TFFNStrBuilder* tffn_sb_new_from(const char* buffer, size_t char_count) {
-    TFFN_ASSERT(char_count > 0);
-    TFFNStrBuilder* sb = tffn_sb_new(char_count * 2);
-    tffn_sb_append(sb, buffer, char_count);
-    return sb;
-}
-
-
-void tffn_sb_append(TFFNStrBuilder* sb, const char* buffer, size_t char_count) {
+void tffn_sb_append_sized(TFFNStrBuilder* sb, const char* buffer, size_t char_count) {
     if (buffer == NULL || char_count <= 0) return; // nothing to append
 
     // The given string doesnt fit into the current buffer, so increase the buffer capacity
+    int need_to_realloc = 0;
     while(sb->count + char_count > sb->capacity) {
         sb->capacity *= 2;
+        need_to_realloc = 1;
     }
 
-    sb->buffer = TFFN_REALLOC(sb->buffer, sb->capacity * sizeof(char));
-    TFFN_ASSERT(sb->buffer != NULL && "Couldn't allocate memory");
+    if(need_to_realloc == 1) {
+        sb->buffer = TFFN_REALLOC(sb->buffer, sb->capacity * sizeof(char));
+        TFFN_ASSERT(sb->buffer != NULL && "Couldn't allocate memory");
+    }
 
     memcpy(sb->buffer + sb->count, buffer, char_count * sizeof(char));
     sb->count += char_count;
+}
+
+
+void tffn_sb_append_char(TFFNStrBuilder* sb, char c) {
+    if (sb == NULL) return; // Handle NULL pointer
+
+    if (sb->count + 1 > sb->capacity) {
+        sb->capacity *= 2;
+        sb->buffer = TFFN_REALLOC(sb->buffer, sb->capacity * sizeof(char));
+        TFFN_ASSERT(sb->buffer != NULL && "Couldn't allocate memory");
+    }
+
+    sb->buffer[sb->count] = c;
+    sb->count++;
+}
+
+
+void tffn_sb_append_nterm(TFFNStrBuilder* sb, const char* str) {
+    tffn_sb_append_sized(sb, str, strlen(str));
 }
 
 
@@ -182,14 +189,17 @@ void tffn_sb_clear(TFFNStrBuilder* sb) {
 
 
 void tffn_sb_free(TFFNStrBuilder* sb) {
-    sb->buffer[sb->count-1] = '\0';
-    TFFN_FREE(sb->buffer);
+    if (sb == NULL) return;
+
+    if (sb->buffer != NULL) {
+        TFFN_FREE(sb->buffer);
+    }
     TFFN_FREE(sb);
 }
 
 
 char* tffn_sb_to_str(TFFNStrBuilder* sb) {
-    char* res = (char*) TFFN_MALLOC((sb->count+1) * sizeof(char));
+    char* res = (char*) TFFN_CALLOC((sb->count+1), sizeof(char));
     for (size_t i = 0; i < sb->count; i++) {
         res[i] = sb->buffer[i];
     }
@@ -198,66 +208,14 @@ char* tffn_sb_to_str(TFFNStrBuilder* sb) {
 }
 
 
-/////////////////// Step Struct ///////////////////
-
-
-TFFNStep* tffn_step_new_dynamic(void (*dyn_func)(TFFNStrBuilder*)) {
-    TFFNStep* step = (TFFNStep*) TFFN_MALLOC(sizeof(TFFNStep));
-    TFFN_ASSERT(step != NULL);
-    step->dynamic_step = dyn_func;
-    step->static_step = NULL;
-    return step;
-}
-
-
-TFFNStep* tffn_step_new_static(const char* static_str) {
-    TFFNStep* step = (TFFNStep*) TFFN_MALLOC(sizeof(TFFNStep));
-    TFFN_ASSERT(step != NULL);
-    step->dynamic_step = NULL;
-    step->static_step = static_str;
-    return step;
-}
-
-
-/////////////////// Error Enum ///////////////////
-
-
-const char* tffn_err_to_str_internal(TFFNErrorType et, ...) {
-    if(et == TFFN_ERR_NONE) return NULL;
-
-    static char buffer[256];
-    va_list args;
-    TFFN_VA_START(args, et);
-
-    if(et == TFFN_ERR_DANGLING_CLOSE_BRACKET) 
-        snprintf(buffer, sizeof(buffer), "INVALID FORMAT: you forgot to open a bracket\n");
-    else if(et == TFFN_ERR_NESTING_BRACKETS) 
-        snprintf(buffer, sizeof(buffer), "INVALID FORMAT: nesting brackets are prohibited in TFFN\n");
-    else if(et == TFFN_ERR_DANGLING_IGNORE_TOKEN) 
-        snprintf(buffer, sizeof(buffer), "INVALID FORMAT: format string cant end with '!'\n");
-    else if(et == TFFN_ERR_UNCLOSED_BRACKET) 
-        snprintf(buffer, sizeof(buffer), "INVALID FORMAT: you forgot to close a bracket\n");
-    else if(et == TFFN_ERR_IGNORE_TOKEN_INSIDE_BRACKET) 
-        snprintf(buffer, sizeof(buffer), "INVALID FORMAT: '!' token cant be used inside brackets\n");
-    else if(et == TFFN_ERR_UNDEFINED_ACTION) 
-        vsnprintf(buffer, sizeof(buffer), "INVALID FORMAT: '%s' action was never defined to the parser\n", args);
-    else if(et == TFFN_ERR_ACTION_TEXT_ALREADY_EXISTS) 
-        vsnprintf(buffer, sizeof(buffer), "An action with '%s' name already exists!\n", args);
-    else buffer[0] = '\0'; // Empty string for no error
-
-    TFFN_VA_END(args);
-    return buffer;
-}
-
-
 /////////////////// HashTable Struct ///////////////////
 
 
-static size_t tffn_htable_str_to_index(TFFNHashTable* ht, const char* str) {
+static size_t tffn_htable_str_to_index(uint32_t table_size, const char* str) {
     uint64_t hash = 0;
 
     size_t str_length = strlen(str);
-    for (int i = 0; i < str_length; i++) {
+    for (size_t i = 0; i < str_length; i++) {
         hash *= 17;
         hash += str[i];
     }
@@ -272,7 +230,7 @@ static size_t tffn_htable_str_to_index(TFFNHashTable* ht, const char* str) {
     hash ^= hash >> 33;
 
     // Compute the index which is in range [0, ht->table_size)
-    size_t index = hash % ht->table_size;
+    size_t index = hash % table_size;
     return index;
 }
 
@@ -303,43 +261,33 @@ void tffn_htable_free(TFFNHashTable* ht) {
 }
 
 
-int tffn_htable_insert(TFFNHashTable* ht, const char* key, void* object) {
+bool tffn_htable_insert(TFFNHashTable* ht, const char* key, void* object) {
     TFFN_ASSERT(ht != NULL);
     TFFN_ASSERT(key != NULL);
     
     // Do nothing if the object being inserted is NULL
-    if(object == NULL) return 0;
+    if(object == NULL) return false;
 
     // Do nothing if the key already exists
     size_t str_length = strlen(key);
-    if(tffn_htable_lookup(ht, key) != NULL) return 0;
+    if(tffn_htable_lookup(ht, key) != NULL) return false;
 
     // Create new entry
     TFFNEntry* entry = (TFFNEntry*) TFFN_MALLOC(sizeof(TFFNEntry));
+    TFFN_ASSERT(entry != NULL);
     entry->object = object;
     entry->key = (char*) TFFN_MALLOC(str_length+1);
-    for(int i = 0; i < str_length; i++) {
+    for(size_t i = 0; i < str_length; i++) {
         entry->key[i] = key[i];
     }
     entry->key[str_length] = '\0';
     entry->key_length = str_length;
 
     // Insert new entry
-    size_t index = tffn_htable_str_to_index(ht, key);
+    size_t index = tffn_htable_str_to_index(ht->table_size, key);
     entry->next = ht->entries[index];
     ht->entries[index] = entry;
-    return 1;
-}
-
-
-static int tffn_util_strequal(const char* str1, size_t len1, const char* str2, size_t len2) {
-    if(len1 != len2) return 0;
-    
-    for(int i = 0; i < len1; i++) {
-        if(str1[i] != str2[i]) return 0;
-    }
-
-    return 1;
+    return true;
 }
 
 
@@ -347,11 +295,10 @@ void* tffn_htable_lookup(TFFNHashTable* ht, const char* key) {
     TFFN_ASSERT(ht != NULL);
     TFFN_ASSERT(key != NULL);
 
-    size_t str_length = strlen(key);
-    size_t index = tffn_htable_str_to_index(ht, key);
+    size_t index = tffn_htable_str_to_index(ht->table_size, key);
     TFFNEntry* temp = ht->entries[index];
     while(temp != NULL) {
-        if(tffn_util_strequal(temp->key, temp->key_length, key, str_length)) break;
+        if(strcmp(temp->key, key) == 0) break;
         temp = temp->next;
     }
 
@@ -360,32 +307,340 @@ void* tffn_htable_lookup(TFFNHashTable* ht, const char* key) {
 }
 
 
-void* tffn_htable_delete(TFFNHashTable* ht, const char* key) {
+/////////////////// FuncHashTable Struct ///////////////////
+
+
+TFFNFuncHashTable* tffn_fhtable_new(uint32_t size) {
+    TFFNFuncHashTable* ht = (TFFNFuncHashTable*) TFFN_MALLOC(sizeof(TFFNFuncHashTable));
+    ht->table_size = size;
+    ht->entries = (TFFNFuncEntry**) TFFN_CALLOC(sizeof(TFFNFuncEntry*), ht->table_size);
+    return ht;
+}
+
+
+void tffn_fhtable_free(TFFNFuncHashTable* ht) {
+    if (ht == NULL) return;
+
+    for (size_t i = 0; i < ht->table_size; i++) {
+        TFFNFuncEntry* temp = ht->entries[i];
+        while (temp != NULL) {
+            TFFNFuncEntry* next = temp->next;
+            TFFN_FREE(temp->key);
+            TFFN_FREE(temp);
+            temp = next;
+        }
+    }
+
+    TFFN_FREE(ht->entries);
+    TFFN_FREE(ht);
+}
+
+
+bool tffn_fhtable_insert(TFFNFuncHashTable* ht, const char* key, void(*func)(TFFNStrBuilder*)) {
+    TFFN_ASSERT(ht != NULL);
+    TFFN_ASSERT(key != NULL);
+    TFFN_ASSERT(func != NULL);
+
+    // Do nothing if the key already exists
+    size_t str_length = strlen(key);
+    if(tffn_fhtable_lookup(ht, key) != NULL) return false;
+
+    // Create new entry
+    TFFNFuncEntry* entry = (TFFNFuncEntry*) TFFN_MALLOC(sizeof(TFFNFuncEntry));
+    TFFN_ASSERT(entry != NULL);
+    entry->func = func;
+    entry->key = (char*) TFFN_MALLOC(str_length+1);
+    for(size_t i = 0; i < str_length; i++) {
+        entry->key[i] = key[i];
+    }
+    entry->key[str_length] = '\0';
+    entry->key_length = str_length;
+
+    // Insert new entry
+    size_t index = tffn_htable_str_to_index(ht->table_size, key);
+    entry->next = ht->entries[index];
+    ht->entries[index] = entry;
+    return true;
+}
+
+
+void (*tffn_fhtable_lookup(TFFNFuncHashTable* ht, const char* key))(TFFNStrBuilder*) {
     TFFN_ASSERT(ht != NULL);
     TFFN_ASSERT(key != NULL);
 
-    size_t str_length = strlen(key);
-    size_t index = tffn_htable_str_to_index(ht, key);
-    TFFNEntry* temp = ht->entries[index];
-    TFFNEntry* prev = NULL;
+    size_t index = tffn_htable_str_to_index(ht->table_size, key);
+    TFFNFuncEntry* temp = ht->entries[index];
     while(temp != NULL) {
-        if(tffn_util_strequal(temp->key, temp->key_length, key, str_length)) break;
-        prev = temp;
+        if(strcmp(temp->key, key) == 0) break;
         temp = temp->next;
     }
 
     if(temp == NULL) return NULL;
+    return temp->func;
+}
 
-    if(prev == NULL) ht->entries[index] = temp->next;
-    else prev->next = temp->next;
+
+/////////////////// Parser Struct ///////////////////
+
+
+static int tffn_parser_contains_act_text(TFFNParser* parser, char* act_text) {
+    void(*dynamic_obj)(TFFNStrBuilder*);
+    dynamic_obj = tffn_fhtable_lookup(parser->dynamic_actions, act_text);
+
+    void* static_obj = tffn_htable_lookup(parser->static_actions, act_text);
     
-    void* object = temp->object;
-    TFFN_FREE(temp);
-    return object;
+    if(dynamic_obj != NULL || static_obj != NULL) {
+        tffn_sb_clear(parser->sb_err);
+
+        char buffer[512];
+        sprintf(buffer, "An action with '%s' name already exists!\n", act_text);
+        tffn_sb_append_nterm(parser->sb_err, buffer);
+        return 1;
+    }
+    
+    return 0;
 }
 
 
 
+static void tffn_util_llist_append_str(TFFNStep** steps_head, char* static_str) {
+    TFFNStep* s = (TFFNStep*) TFFN_MALLOC(sizeof(TFFNStep));
+    TFFN_ASSERT(s != NULL);
+    s->dynamic_step = NULL;
+    s->static_step = static_str;
+    s->next = NULL;
+
+    if(*steps_head == NULL) { // Set as first element
+        *steps_head = s;
+    }
+    else { // Append to the end
+        TFFNStep* last = *steps_head;
+        while(last->next != NULL) { last = last->next; }
+        last->next = s;
+    }
+}
+
+
+static void tffn_util_llist_append_dyn(TFFNStep** steps_head, void(*dynamic_act)(TFFNStrBuilder*)) {
+    TFFNStep* s = (TFFNStep*) TFFN_MALLOC(sizeof(TFFNStep));
+    TFFN_ASSERT(s != NULL);
+    s->dynamic_step = dynamic_act;
+    s->static_step = NULL;
+    s->next = NULL;
+
+    if(*steps_head == NULL) { // Set as first element
+        *steps_head = s;
+    }
+    else { // Append to the end
+        TFFNStep* last = *steps_head;
+        while(last->next != NULL) { last = last->next; }
+        last->next = s;
+    }
+}
+
+
+
+static TFFNStep* tffn_parse_steps(TFFNParser* parser, const char* format) {
+    tffn_sb_clear(parser->sb_part);
+
+    TFFNStep* steps_head = NULL;
+    int format_len = strlen(format);
+    
+    TFFNStrBuilder* sb_brack = tffn_sb_new(format_len);
+    int in_brack = 0;
+
+    int i = 0;
+    while(i < format_len) {
+        char c = format[i];
+
+        switch (c) {
+            case '[': {
+                if(in_brack == 1) {
+                    tffn_sb_clear(parser->sb_err);
+                    tffn_sb_append_nterm(
+                        parser->sb_err, "INVALID FORMAT: nesting brackets are prohibited in TFFN\n"
+                    );
+                    return NULL;
+                }
+
+                in_brack = 1;
+                i++;
+            } break;
+
+            case ']': {
+                if(in_brack == 0) {
+                    tffn_sb_clear(parser->sb_err);
+                    tffn_sb_append_nterm(
+                        parser->sb_err, "INVALID FORMAT: you forgot to open a bracket\n"
+                    );
+                    return NULL;
+                }
+
+                in_brack = 0;
+
+                char* brack_content = tffn_sb_to_str(sb_brack);
+                tffn_sb_clear(sb_brack);
+
+                void* static_action = tffn_htable_lookup(parser->static_actions, brack_content);
+                
+                void(*dynamic_action)(TFFNStrBuilder*);
+                dynamic_action = tffn_fhtable_lookup(parser->dynamic_actions, brack_content);
+
+                if(static_action != NULL) {
+                    char* step = (char*) static_action;
+                    tffn_sb_append_nterm(parser->sb_part, step);
+                }
+                else if(dynamic_action != NULL) {
+                    if(parser->sb_part->count > 0) {
+                        char* static_str = tffn_sb_to_str(parser->sb_part);
+                        tffn_util_llist_append_str(&steps_head, static_str);
+                        tffn_sb_clear(parser->sb_part);
+                    }
+                    
+                    tffn_util_llist_append_dyn(&steps_head, dynamic_action);
+                }
+                else {
+                    tffn_sb_clear(parser->sb_err);
+                    char buffer[512];
+                    sprintf(buffer, "INVALID FORMAT: '%s' action was never defined to the parser\n", brack_content);
+                    tffn_sb_append_nterm(parser->sb_err, buffer);
+                    TFFN_FREE(brack_content);
+                    return NULL;
+                }
+
+                TFFN_FREE(brack_content);
+                i++;
+            } break;
+
+            case '!': {
+                if(in_brack == 1) {
+                    tffn_sb_clear(parser->sb_err);
+                    tffn_sb_append_nterm(
+                        parser->sb_err, "INVALID FORMAT: '!' token cant be used inside brackets\n"
+                    );
+                    return NULL;
+                }
+                
+                if(i == format_len - 1) {
+                    tffn_sb_clear(parser->sb_err);
+                    tffn_sb_append_nterm(
+                        parser->sb_err, "INVALID FORMAT: format string cant end with '!'\n"
+                    );
+                    return NULL;
+                }
+
+                tffn_sb_append_char(parser->sb_part, format[i+1]);
+                i += 2;
+            } break;
+
+            default: {
+                if(in_brack == 1) {
+                    tffn_sb_append_char(sb_brack, c);
+                }
+                else {
+                    tffn_sb_append_char(parser->sb_part, c);
+                }
+
+                i++;
+            } break;
+        }
+    }
+
+    // The format string ended but bracketText isnt empty so the last bracket was never closed
+    if(sb_brack->count != 0) {
+        tffn_sb_clear(parser->sb_err);
+        tffn_sb_append_nterm(
+            parser->sb_err, "INVALID FORMAT: you forgot to close a bracket\n"
+        );
+        return NULL;
+    }
+
+    // Add the final static string part as a step
+    if(parser->sb_part->count > 0) {
+        char* static_str = tffn_sb_to_str(parser->sb_part);
+        tffn_util_llist_append_str(&steps_head, static_str);
+        tffn_sb_clear(parser->sb_part);
+    }
+
+    tffn_htable_insert(parser->format_cache, format, (void*) steps_head);
+    return steps_head;
+}
+
+
+void tffn_parser_free(TFFNParser* parser) {
+    tffn_htable_free(parser->format_cache);
+    tffn_fhtable_free(parser->dynamic_actions);
+    tffn_htable_free(parser->static_actions);
+    tffn_sb_free(parser->sb_part);
+    tffn_sb_free(parser->sb_res);
+    tffn_sb_free(parser->sb_err);
+    TFFN_FREE(parser);
+}
+
+
+TFFNParser* tffn_parser_new() {
+    TFFNParser* parser = (TFFNParser*) TFFN_MALLOC(sizeof(TFFNParser));
+    TFFN_ASSERT(parser != NULL);
+    parser->dynamic_actions = tffn_fhtable_new(128);
+    parser->static_actions = tffn_htable_new(128);
+    parser->format_cache = tffn_htable_new(128);
+    parser->sb_part = tffn_sb_new(64);
+    parser->sb_err = tffn_sb_new(64);
+    parser->sb_res = tffn_sb_new(64);
+    return parser;
+}
+
+
+bool tffn_parser_okay(TFFNParser* parser) {
+    return parser->sb_err->count == 0; // does the err string exist?
+}
+
+
+void tffn_parser_define_static_action(TFFNParser* parser, char* act_text, char* static_act) {
+    if(tffn_parser_contains_act_text(parser, act_text)) return;
+
+    tffn_sb_clear(parser->sb_err);
+    tffn_htable_insert(parser->static_actions, act_text, (void*)static_act);
+}
+
+
+void tffn_parser_define_dynamic_action(TFFNParser* parser, char* act_text, void(*dynamic_act)(TFFNStrBuilder*)) {
+    if(tffn_parser_contains_act_text(parser, act_text)) return;
+    
+    tffn_sb_clear(parser->sb_err);
+    tffn_fhtable_insert(parser->dynamic_actions, act_text, dynamic_act);
+}
+
+
+char* tffn_parser_parse(TFFNParser* parser, const char* format) {
+    void* steps_ojb = tffn_htable_lookup(parser->format_cache, format);
+    
+    TFFNStep* step = (TFFNStep*) steps_ojb;
+    if(step == NULL) {
+        step = tffn_parse_steps(parser, format);
+        if(step == NULL) return NULL; // parsing error happened
+    }
+
+    tffn_sb_clear(parser->sb_res);
+
+    while(step != NULL) {
+        if(step->static_step != NULL) {
+            tffn_sb_append_nterm(parser->sb_res, step->static_step);
+        }
+        else if(step->dynamic_step != NULL) { 
+            step->dynamic_step(parser->sb_res);
+        }
+        else {
+            TFFN_ASSERT(0 && "This line should have been unreachable!");
+        }
+
+        step = step->next;
+    }
+
+    char* result_str = tffn_sb_to_str(parser->sb_res);
+    tffn_sb_clear(parser->sb_res);
+    return result_str;
+}
 
 
 
