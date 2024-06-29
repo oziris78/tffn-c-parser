@@ -19,12 +19,25 @@
 #define TFFN_H
 
 
-#define TFFN_ASSERT assert
-#define TFFN_MALLOC malloc
-#define TFFN_REALLOC realloc
-#define TFFN_CALLOC calloc
-#define TFFN_FREE free
+#ifndef TFFN_ASSERT
+    #define TFFN_ASSERT(x) assert((x))
+#endif
 
+#ifndef TFFN_MALLOC
+    #define TFFN_MALLOC(x) malloc((x))
+#endif
+
+#ifndef TFFN_REALLOC
+    #define TFFN_REALLOC(x, y) realloc((x), (y))
+#endif
+
+#ifndef TFFN_CALLOC
+    #define TFFN_CALLOC(x, y) calloc((x), (y))
+#endif
+
+#ifndef TFFN_FREE
+    #define TFFN_FREE(x) free((x))
+#endif
 
 #include <assert.h>
 #include <stdbool.h>
