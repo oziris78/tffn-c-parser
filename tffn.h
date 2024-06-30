@@ -246,6 +246,9 @@ extern "C" {  // prevents name mangling of functions when used in C++
 #endif
 
 
+// Returns a new TFFNStrBuilder instance with the given initial_capacity
+// Freeing of this TFFNStrBuilder instance is up to the user or the owner of said instance
+// Freeing can be done by using tffn_parser_free function
 TFFNStrBuilder* tffn_sb_new(size_t initial_capacity) {
     TFFN_ASSERT(initial_capacity > 0);
     TFFNStrBuilder* sb = (TFFNStrBuilder*) TFFN_MALLOC(sizeof(TFFNStrBuilder));
@@ -260,6 +263,9 @@ TFFNStrBuilder* tffn_sb_new(size_t initial_capacity) {
 }
 
 
+// Appends a sized string into the end of the given string builder
+// It doesnt matter if buffer is null terminated or not.
+// This function always appends 'char_count' amount of characters into sb
 void tffn_sb_append_sized(TFFNStrBuilder* sb, const char* buffer, size_t char_count) {
     if (buffer == NULL || char_count <= 0) return; // nothing to append
 
@@ -280,6 +286,7 @@ void tffn_sb_append_sized(TFFNStrBuilder* sb, const char* buffer, size_t char_co
 }
 
 
+// Appends a single character to the given string builder
 void tffn_sb_append_char(TFFNStrBuilder* sb, char c) {
     if (sb == NULL) return; // Handle NULL pointer
 
@@ -294,12 +301,15 @@ void tffn_sb_append_char(TFFNStrBuilder* sb, char c) {
 }
 
 
+// Appends a null terminated (normal/c-style) string into the string builder
 void tffn_sb_append_nterm(TFFNStrBuilder* sb, const char* str) {
     if(sb == NULL) return;
     tffn_sb_append_sized(sb, str, strlen(str));
 }
 
 
+// Removes all of the contents of the given string builder by setting its count to 0
+// This allows the previous contents to still be there (but they will be discarded and overwritten)
 void tffn_sb_clear(TFFNStrBuilder* sb) {
     if(sb != NULL) {
         sb->count = 0;
@@ -307,6 +317,7 @@ void tffn_sb_clear(TFFNStrBuilder* sb) {
 }
 
 
+// This function frees the given string builder
 void tffn_sb_free(TFFNStrBuilder* sb) {
     if (sb == NULL) return;
 
@@ -317,6 +328,8 @@ void tffn_sb_free(TFFNStrBuilder* sb) {
 }
 
 
+// This function returns the current contents of the given string builder as a new string
+// It returns a newly allocated char* which will be needed to freed by the user
 char* tffn_sb_to_str(TFFNStrBuilder* sb) {
     if (sb == NULL) return NULL;
 
@@ -330,6 +343,7 @@ char* tffn_sb_to_str(TFFNStrBuilder* sb) {
 }
 
 
+// Internal helper function, not meant to be used by this library's users
 static size_t __tffn_htable_str_to_index(uint32_t table_size, const char* str) {
     uint64_t hash = 0;
 
@@ -354,6 +368,7 @@ static size_t __tffn_htable_str_to_index(uint32_t table_size, const char* str) {
 }
 
 
+// Internal helper function, not meant to be used by this library's users
 static void (*__tffn_fhtable_lookup(__TFFNFuncHashTable* ht, const char* key))(TFFNStrBuilder*) {
     TFFN_ASSERT(ht != NULL);
     TFFN_ASSERT(key != NULL);
@@ -370,6 +385,7 @@ static void (*__tffn_fhtable_lookup(__TFFNFuncHashTable* ht, const char* key))(T
 }
 
 
+// Internal helper function, not meant to be used by this library's users
 static void* __tffn_htable_lookup(__TFFNHashTable* ht, const char* key) {
     TFFN_ASSERT(ht != NULL);
     TFFN_ASSERT(key != NULL);
@@ -386,6 +402,7 @@ static void* __tffn_htable_lookup(__TFFNHashTable* ht, const char* key) {
 }
 
 
+// Internal helper function, not meant to be used by this library's users
 static void __tffn_htable_insert(__TFFNHashTable* ht, const char* key, void* object) {
     TFFN_ASSERT(ht != NULL);
     TFFN_ASSERT(key != NULL);
@@ -416,6 +433,7 @@ static void __tffn_htable_insert(__TFFNHashTable* ht, const char* key, void* obj
 }
 
 
+// Internal helper function, not meant to be used by this library's users
 static void __tffn_fhtable_insert(__TFFNFuncHashTable* ht, const char* key, void(*func)(TFFNStrBuilder*)) {
     TFFN_ASSERT(ht != NULL);
     TFFN_ASSERT(key != NULL);
@@ -444,6 +462,7 @@ static void __tffn_fhtable_insert(__TFFNFuncHashTable* ht, const char* key, void
 }
 
 
+// Internal helper function, not meant to be used by this library's users
 static int __tffn_parser_contains_act_text(TFFNParser* parser, char* act_text) {
     void(*dynamic_obj)(TFFNStrBuilder*);
     dynamic_obj = __tffn_fhtable_lookup(parser->dynamic_actions, act_text);
@@ -463,6 +482,7 @@ static int __tffn_parser_contains_act_text(TFFNParser* parser, char* act_text) {
 }
 
 
+// Internal helper function, not meant to be used by this library's users
 static void __tffn_append_static_step(__TFFNStep** steps_head, char* static_str) {
     __TFFNStep* s = (__TFFNStep*) TFFN_MALLOC(sizeof(__TFFNStep));
     TFFN_ASSERT(s != NULL && "Couldn't allocate memory");
@@ -481,6 +501,7 @@ static void __tffn_append_static_step(__TFFNStep** steps_head, char* static_str)
 }
 
 
+// Internal helper function, not meant to be used by this library's users
 static void __tffn_append_dynamic_step(__TFFNStep** steps_head, void(*dynamic_act)(TFFNStrBuilder*)) {
     __TFFNStep* s = (__TFFNStep*) TFFN_MALLOC(sizeof(__TFFNStep));
     TFFN_ASSERT(s != NULL && "Couldn't allocate memory");
@@ -499,6 +520,7 @@ static void __tffn_append_dynamic_step(__TFFNStep** steps_head, void(*dynamic_ac
 }
 
 
+// Internal helper function, not meant to be used by this library's users
 static __TFFNStep* __tffn_parse_steps(TFFNParser* parser, const char* format) {
     tffn_sb_clear(parser->sb_part);
     tffn_sb_clear(parser->sb_brack);
@@ -626,6 +648,7 @@ static __TFFNStep* __tffn_parse_steps(TFFNParser* parser, const char* format) {
 }
 
 
+// Returns the current error message of the parser as a newly allocated string
 char* tffn_parser_err_msg(TFFNParser* parser) {
     if (parser == NULL) return NULL;
 
@@ -633,6 +656,7 @@ char* tffn_parser_err_msg(TFFNParser* parser) {
 }
 
 
+// Frees the given parser
 void tffn_parser_free(TFFNParser* parser) {
     if(parser == NULL) return;
 
@@ -692,6 +716,8 @@ void tffn_parser_free(TFFNParser* parser) {
 }
 
 
+// Returns a new TFFNParser instance
+// Freeing this instance is up to the user and can be done via tffn_parser_free function
 TFFNParser* tffn_parser_new() {
     TFFNParser* parser = (TFFNParser*) TFFN_MALLOC(sizeof(TFFNParser));
     TFFN_ASSERT(parser != NULL && "Couldn't allocate memory");
@@ -737,12 +763,15 @@ TFFNParser* tffn_parser_new() {
 }
 
 
+// Returns true if no parsing error occurred during the last tffn_parser_parse function call
 bool tffn_parser_okay(TFFNParser* parser) {
     if (parser == NULL) return false; // parser is literally fucking NULL, do you think its okay?!?
     return parser->sb_err->count == 0; // does the err string exist?
 }
 
 
+// Defines a static action to the given parser
+// act_text is the text that goes in between the brackets
 void tffn_parser_define_static_action(TFFNParser* parser, char* act_text, char* static_act) {
     if (parser == NULL || static_act == NULL || act_text == NULL) return;
     if (act_text[0] == '\0') return;
@@ -753,6 +782,8 @@ void tffn_parser_define_static_action(TFFNParser* parser, char* act_text, char* 
 }
 
 
+// Defines a dynamic action to the given parser
+// act_text is the text that goes in between the brackets
 void tffn_parser_define_dynamic_action(TFFNParser* parser, char* act_text, void(*dynamic_act)(TFFNStrBuilder*)) {
     if (parser == NULL || dynamic_act == NULL || act_text == NULL) return;
     if (act_text[0] == '\0') return;
@@ -763,6 +794,13 @@ void tffn_parser_define_dynamic_action(TFFNParser* parser, char* act_text, void(
 }
 
 
+// Parses the given format using the given parser and returns the result as a newly allocated string
+// Its up to the user to free this string when it needs to be freed
+// Using this function will never invalidate 'format' strings so you can keep using the same string
+// If an error occurs during the parsing the following things will happen:
+//     - An error message will be appended to parser->sb_err, see tffn_parser_okay and 
+//           tffn_parser_err_msg functions for more information
+//     - This function will return NULL instead of a newly allocated string
 char* tffn_parser_parse(TFFNParser* parser, const char* format) {
     TFFN_ASSERT(parser != NULL);
     TFFN_ASSERT(format != NULL);
