@@ -5,15 +5,12 @@
 
 <b>A C library for parsing format strings written in TFFN syntax.</b>
 
-For documentation about the TFFN syntax you can look 
-<a href="https://github.com/oziris78/tffn-java-parser#tffn-syntax">here</a>.
+For documentation about the TFFN syntax you can look <a href="https://github.com/oziris78/tffn-java-parser#tffn-syntax">here</a>.
 
-For documentation about this library, you can take a look at the 
-huge comment section at the top of the tffn.h file.
+For documentation about this library, you can take a look at the huge comment section at the top of the tffn.h file.
 
 
 <br>
-
 
 
 # Basic Example
