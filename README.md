@@ -38,6 +38,7 @@ int main() {
 
 <br>
 
+
 # Advanced Example
 
 ```c
@@ -84,6 +85,7 @@ int main() {
 
 <br>
 
+
 # Customizing TFFNParser
 
 You can easily make this library use custom functions.
@@ -113,4 +115,7 @@ int main() {
 # Licensing
 
 <a href="https://github.com/oziris78/tffn-c-parser">This library</a> is licensed under the terms of the Apache-2.0 license.
+
+
+<br>
 
