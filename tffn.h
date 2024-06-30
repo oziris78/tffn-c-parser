@@ -12,6 +12,129 @@
 // See the License for the specific language governing permissions and 
 // limitations under the License.
 
+
+// ------------------------  TFFN C PARSER v1  ------------------------
+#define TFFN_C_PARSER_VERSION 1
+
+
+/*
+TFFN-C-Parser is a header only library that can parse any TFFN formatted string.
+
+Do this:
+    #define TFFN_IMPLEMENTATION
+    #include "tffn.h"
+only ONCE in a C/C++ file to create the implementation.
+
+In other files you can simply include the library and use it since including the library
+without defining TFFN_IMPLEMENTATION macro will only include the definitions and none of
+the actual C code.
+
+This library only defines two structs that are designed to be externally used:
+    - TFFNStrBuilder, which is a Java/C# style classic string builder
+    - TFFNParser, which can parse the TFFN formatted strings
+other structs are not meant to but can be (if you want to) used externally.
+
+Here is a basic example:
+---------- example file start ----------
+#include <stdio.h>
+#include <stdlib.h>
+
+#define TFFN_IMPLEMENTATION
+#include "tffn.h"
+
+int main() {
+    TFFNParser* parser = tffn_parser_new();
+    tffn_parser_define_static_action(parser, "h", "Hello");
+    tffn_parser_define_static_action(parser, "w", "World");
+
+    char* str = tffn_parser_parse(parser, "[h] [w]!!");
+    if(!tffn_parser_okay(parser)) exit(-1);
+    printf(str); // prints "Hello World!"  (not "Hello World!!")
+
+    free(str);
+    tffn_parser_free(parser);
+}
+---------- example file end ----------
+
+
+Here is a very advanced example:
+---------- example file start ----------
+#include <stdio.h>
+#include <stdlib.h>
+
+#define TFFN_IMPLEMENTATION
+#include "tffn.h"
+
+int f1 = 1, f2 = 1;
+
+void dyn_func_inc_num(TFFNStrBuilder* sb) {
+    int f3 = f1 + f2;
+    f1 = f2;
+    f2 = f3;
+
+    char str[5];
+    sprintf(str, "%d", f3);
+    tffn_sb_append_nterm(sb, str);
+}
+
+int main() {
+    TFFNParser* parser = tffn_parser_new();
+    tffn_parser_define_dynamic_action(parser, "fib", dyn_func_inc_num);
+    tffn_parser_define_static_action(parser, "text", "Here are the fibonacci numbers: ");
+
+    char* str = tffn_parser_parse(parser, "[text] 1 1 [fib] [fib] [fib] [fib] [fib] ...");
+    if(!tffn_parser_okay(parser)) {
+        printf("A parsing error happened!\n");
+        char* err_message = tffn_parser_err_msg(parser);
+        printf("Error message: %s\n", err_message);
+        free(err_message); // not really needed since we are going to exit(-1) but yeah
+        exit(-1);
+    }
+    else {
+        printf(str); // Here are the fibonacci numbers:  1 1 2 3 5 8 13 ...
+        free(str);
+    }
+
+    tffn_parser_free(parser);
+}
+---------- example file end ----------
+
+
+You can also, if you want, make this library use custom malloc, calloc, assert,
+realloc and free functions.
+
+To do this, you need to redefine TFFN_MALLOC or TFFN_CALLOC or TFFN_ASSERT or
+TFFN_REALLOC or TFFN_FREE before including the header file.
+
+Example:
+---------- example file start ----------
+void* my_custom_malloc(size_t);
+
+#define TFFN_IMPLEMENTATION
+#define TFFN_MALLOC my_custom_malloc
+#include "tffn.h"
+
+void* my_custom_malloc(size_t size_in_bytes) {
+    void* memory = (void*) malloc(size_in_bytes);
+    printf("My malloc just ran!\n");
+    return memory;
+}
+
+int main() {
+    // use the library the same way you would without a custom malloc
+}
+---------- example file end ----------
+
+
+This library is licensed under the terms of the Apache-2.0 license. You can find a 
+copy of this license in the root repository OR at the end of this header file.
+
+This library was developed by Oğuzhan Topaloğlu (oziris78 aka the guy that came up 
+with TFFN in the first place).
+
+*/
+
+
 // ------------------------------------------------------------ //
 
 
